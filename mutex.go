@@ -29,8 +29,9 @@ import (
 )
 
 const (
-	defaultStorageLockURL   = "https://www.googleapis.com/upload/storage/v1"
-	defaultStorageUnlockURL = "https://www.googleapis.com/storage/v1"
+	defaultStorageLockURL   = "https://storage.googleapis.com/upload/storage/v1"
+	defaultStorageUnlockURL = "https://storage.googleapis.com/storage/v1"
+	maxBackoffTime          = 5 * time.Minute
 )
 
 var (
@@ -90,6 +91,7 @@ func (m *mutex) ContextLock(ctx context.Context) error {
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
+			backoff = min(backoff, maxBackoffTime)
 			continue
 		case <-ctx.Done():
 			return ctx.Err()
@@ -105,7 +107,7 @@ func (m *mutex) Unlock() {
 // ContextUnlock waits indefinitely to release a mutex with timeout
 // governed by passed context.
 func (m *mutex) ContextUnlock(ctx context.Context) error {
-	url := fmt.Sprintf("%s/b/%s/o/%s?", storageUnlockURL, m.bucket, m.object)
+	url := fmt.Sprintf("%s/b/%s/o/%s?", storageUnlockURL, m.bucket, url.QueryEscape(m.object))
 	// NOTE: ctx deadline/timeout and backoff are independent. The former is
 	// an aggregate timeout and the latter is a per loop iteration delay.
 	backoff := 10 * time.Millisecond
@@ -126,6 +128,7 @@ func (m *mutex) ContextUnlock(ctx context.Context) error {
 		select {
 		case <-time.After(backoff):
 			backoff *= 2
+			backoff = min(backoff, maxBackoffTime)
 			continue
 		case <-ctx.Done():
 			return ctx.Err()
@@ -145,7 +148,6 @@ var httpClient = func(ctx context.Context) (*http.Client, error) {
 // golang.org/x/oauth2/google package for App Default Credentials details.
 //
 // If ctx argument is nil, context.Background is used.
-//
 func New(ctx context.Context, bucket, object string) (ContextLocker, error) {
 	if ctx == nil {
 		ctx = context.Background()
